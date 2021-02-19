@@ -6,8 +6,8 @@ from .forms import EmailPostForm, CommentForm, SearchForm
 from django.core.mail import send_mail
 from taggit.models import Tag
 from django.db.models import Count
-from django.contrib.postgres.search import SearchVector
-from django.http import HttpResponse
+from django.contrib.postgres.search import SearchVector, SearchQuery, SearchRank
+from django.contrib.postgres.search import TrigramSimilarity
 
 
 class PostListView(ListView):
@@ -22,7 +22,7 @@ def post_share(request, post_id):
     post = get_object_or_404(Post, id=post_id, status='published')
     sent = False
     if request.method == 'POST':
-    # Форма была отправлена на сохранение.
+        # Форма была отправлена на сохранение.
         form = EmailPostForm(request.POST)
         if form.is_valid():
             # Все поля формы прошли валидацию.
@@ -38,11 +38,10 @@ def post_share(request, post_id):
             return render(request, 'blog/post/share.html', {'post': post, 'form': form, 'sent': sent})
     else:
         form = EmailPostForm()
-        return render(request, 'blog/post/share.html', {'post': post, 'form': form,  'sent': sent})
+        return render(request, 'blog/post/share.html', {'post': post, 'form': form, 'sent': sent})
 
 
 def post_list(request, tag_slug=None):
-
     object_list = Post.published.all()
 
     tag = None
@@ -55,10 +54,10 @@ def post_list(request, tag_slug=None):
     try:
         posts = paginator.page(page)
     except PageNotAnInteger:
-    # Если страница не является целым числом, возвращаем первую страницу.
+        # Если страница не является целым числом, возвращаем первую страницу.
         posts = paginator.page(1)
     except EmptyPage:
-    # Если номер страницы больше, чем общее количество страниц, возвращаем последнюю.
+        # Если номер страницы больше, чем общее количество страниц, возвращаем последнюю.
         posts = paginator.page(paginator.num_pages)
 
     return render(request, 'blog/post/list.html', {'page': page, 'posts': posts, 'tag': tag})
@@ -105,7 +104,10 @@ def post_search(request):
         form = SearchForm(request.GET)
     if form.is_valid():
         query = form.cleaned_data['query']
-        results = Post.objects.annotate(search=SearchVector('title', 'body'), ).filter(search=query)
+        search_vector = SearchVector('title', weight='A') + SearchVector('body', weight='B')
+        search_query = SearchQuery(query)
+        results = Post.objects.annotate(similarity=TrigramSimilarity('title',
+                                                                     query),).filter(similarity__gt=0.3).order_by('-similarity')
     return render(request, 'blog/post/search.html', {'form': form, 'query': query, 'results': results})
 
     # return render(request, 'blog/post/search.html')
